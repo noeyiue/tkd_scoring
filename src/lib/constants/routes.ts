@@ -1,0 +1,1 @@
+export const WEBSOCKET_ENDPOINT = "http://localhost:3001"
