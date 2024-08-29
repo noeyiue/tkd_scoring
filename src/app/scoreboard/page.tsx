@@ -1,6 +1,16 @@
 "use client";
 
+import { WEBSOCKET_ENDPOINT } from "@/lib/constants/routes";
+import { TkdColor } from "@/lib/store/features/IscoreboardSlice";
+import { resetScore, updateScore } from "@/lib/store/features/scoreboardSlice";
+import { useAppDispatch, useAppSelector } from "@/lib/store/hooks";
 import React, { useEffect, useState } from "react";
+import { io } from "socket.io-client";
+
+type IControllerData = {
+  color: TkdColor,
+  score: number,
+}
 
 type IPointAction = {
   bluePoint: number;
@@ -9,6 +19,8 @@ type IPointAction = {
 };
 
 function Page() {
+  const dispatch = useAppDispatch();
+
   const match_num = 401;
   const age = "CADETS";
   const compet_round = "Final";
@@ -16,7 +28,7 @@ function Page() {
   const weight = "-49";
   const blue_name = "Name O.";
   const red_name = "Name T.";
-  const round_time = 100; // in second * 100
+  const round_time = 1000; // in second * 100
   const break_time = 500;
 
   const [time, setTime] = useState(round_time);
@@ -25,10 +37,16 @@ function Page() {
 
   const [round, setRound] = useState(1);
 
-  const [blueScore, setBlueScore] = useState(0);
-  const [blueTech, setBlueTech] = useState([0, 0, 0, 0, 0]);
-  const [redScore, setRedScore] = useState(0);
-  const [redTech, setRedTech] = useState([0, 0, 0, 0, 0]);
+  const blueScore = useAppSelector((state) => state.scoreboard.blueScore);
+  const blueTech = useAppSelector((state) => state.scoreboard.blueTech);
+
+  const redScore = useAppSelector((state) => state.scoreboard.redScore);
+  const redTech = useAppSelector((state) => state.scoreboard.redTech);
+
+  // const [blueScore, setBlueScore] = useState(0);
+  // const [blueTech, setBlueTech] = useState([0, 0, 0, 0, 0]);
+  // const [redScore, setRedScore] = useState(0);
+  // const [redTech, setRedTech] = useState([0, 0, 0, 0, 0]);
   const [blueGamjeom, setBlueGamjeom] = useState(0);
   const [redGamjeom, setRedGamjeom] = useState(0);
   const [blueWinRound, setBlueWinRound] = useState(0);
@@ -39,7 +57,7 @@ function Page() {
   let blue_hits = 0;
   let red_hits = 0;
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
+  const onKeyDown = async (e: React.KeyboardEvent) => {
     if (e.key === " ") {
       setIsStopped(!isStopped);
     }
@@ -56,21 +74,11 @@ function Page() {
 
       if (pointAction) {
         if (pointAction.bluePoint > 0) {
-          setBlueScore((prevScore) => prevScore + pointAction.bluePoint);
-          setBlueTech((prevTech) => {
-            const newTech = [...prevTech];
-            newTech[pointAction.techIndex] = newTech[pointAction.techIndex] + 1;
-            return newTech;
-          });
+          dispatch(updateScore({ color: 'blue', score: pointAction.bluePoint, isGamjeom: false}))
         }
 
         if (pointAction.redPoint > 0) {
-          setRedScore((prevScore) => prevScore + pointAction.redPoint);
-          setRedTech((prevTech) => {
-            const newTech = [...prevTech];
-            newTech[pointAction.techIndex] = newTech[pointAction.techIndex] + 1;
-            return newTech;
-          });
+          dispatch(updateScore({ color: 'red', score: pointAction.redPoint, isGamjeom: false}))
         }
       }
     }
@@ -78,13 +86,37 @@ function Page() {
       if (e.key === "s") {
       } else if (e.key === ".") {
         setBlueGamjeom((prevBG) => prevBG + 1);
-        setRedScore((prevRedScore) => prevRedScore + 1);
+        dispatch(updateScore({ color: 'red', score: 1, isGamjeom: true}))
       } else if (e.key === "/") {
         setRedGamjeom((prevRG) => prevRG + 1);
-        setBlueScore((prevBlueScore) => prevBlueScore + 1);
+        dispatch(updateScore({ color: 'blue', score: 1, isGamjeom: true}))
+        // setBlueScore((prevBlueScore) => prevBlueScore + 1);
       }
     }
   };
+
+  useEffect(() => {
+    const socket = io(WEBSOCKET_ENDPOINT); 
+
+    socket.on('connect', () => {
+      console.log('Connected to Socket.IO server');
+    });
+
+    socket.on('update', (data : IControllerData) => {
+      if (!isBreak && !isStopped) {
+        dispatch(updateScore({ color: data.color, score: data.score, isGamjeom: false}));
+      }
+    });
+
+    socket.on('disconnect', () => {
+      console.log('Disconnected from Socket.IO server');
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [isBreak, isStopped, dispatch]);
+  
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -119,12 +151,10 @@ function Page() {
       }
     } else if (isBreak && time === 0) {
       setRound((prevRound) => prevRound + 1);
-      setBlueScore(0);
-      setRedScore(0);
+      dispatch(resetScore("blue"))
+      dispatch(resetScore("red"))
       setBlueGamjeom(0);
       setRedGamjeom(0);
-      setBlueTech([0, 0, 0, 0, 0]);
-      setRedTech([0, 0, 0, 0, 0]);
       setTime(round_time);
       setIsBreak(false);
       setIsStopped(true);
@@ -132,7 +162,7 @@ function Page() {
     return () => {
       clearInterval(timer);
     };
-  }, [isStopped, time]);
+  }, [isBreak, isStopped, time]);
 
   const minute = String(Math.floor(time / 6000)).padStart(1, "0");
   const second = String(Math.floor((time % 6000) / 100)).padStart(2, "0");
